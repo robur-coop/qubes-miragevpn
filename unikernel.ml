@@ -12,12 +12,7 @@ module Main
 struct
   module O = Miragevpn_mirage.Make (R) (M) (P) (T) (S)
 
-  type t = {
-    ovpn : O.t;
-    mutable cache : Fragments.Cache.t;
-    table : Mirage_nat_lru.t;
-    clients : Clients.t;
-  }
+  type t = { ovpn : O.t; table : Mirage_nat_lru.t; clients : Clients.t }
 
   module A = Arp.Make (Vif.Client_ethernet) (T)
 
@@ -33,7 +28,9 @@ struct
         (fun () -> Some (Randomconv.int16 R.generate))
         `NAT
     with
-    | Error _err -> ()
+    | Error err ->
+        Logs.debug (fun m ->
+            m "Failed to add a NAT rule: %a" Mirage_nat.pp_error err)
     | Ok () -> ()
 
   let output_tunnel t packet =
@@ -46,21 +43,24 @@ struct
         in
         if not res then Logs.err (fun m -> m "Failed to write data via tunnel");
         Lwt.return_unit
-    | Error _err -> Lwt.return_unit
+    | Error err ->
+        Logs.err (fun m ->
+            m "Nat_packet.to_cstruct failed: %a" Nat_packet.pp_error err);
+        Lwt.return_unit
 
-  let private_ip_cidr = assert false
-
-  let rec ingest_private t packet =
+  let rec ingest_private ~ipaddr t packet =
     let (`IPv4 ({ Ipv4_packet.dst; _ }, _) : Nat_packet.t) = packet in
-    if Ipaddr.V4.compare dst (Ipaddr.V4.Prefix.address private_ip_cidr) = 0 then
-      Lwt.return_unit
+    if Ipaddr.V4.compare dst ipaddr = 0 then Lwt.return_unit
     else
       match Mirage_nat_lru.translate t.table packet with
       | Ok packet -> output_tunnel t packet
       | Error `Untranslated ->
           add_rule t packet;
-          ingest_private t packet
-      | Error `TTL_exceeded -> Lwt.return_unit (* TODO *)
+          ingest_private ~ipaddr t packet
+      | Error `TTL_exceeded ->
+          Logs.warn (fun m -> m "TTL exceeded");
+          Lwt.return_unit
+  (* TODO(dinosaure): should report ICMP error message to src. *)
 
   let add_vif ~finalisers t ({ Dao.Client_vif.domid; device_id } as client_vif)
       ipaddr () =
@@ -72,19 +72,24 @@ struct
     Finaliser.add
       ~finaliser:(fun () -> Clients.rem_client t.clients vif)
       finalisers;
+    let cache = ref (Fragments.Cache.empty (256 * 1024)) in
     let listener =
       let fn () =
         let* arp = A.connect vif.Vif.ethernet in
         let arpv4 = A.input arp in
         let ipv4 p =
           let cache', res =
-            Nat_packet.of_ipv4_packet t.cache ~now:(M.elapsed_ns ()) p
+            Nat_packet.of_ipv4_packet !cache ~now:(M.elapsed_ns ()) p
           in
-          t.cache <- cache';
+          cache := cache';
           match res with
-          | Error _err -> Lwt.return_unit
+          | Error err ->
+              Logs.err (fun m ->
+                  m "Listen for %a failed: %a" Vif.pp vif Nat_packet.pp_error
+                    err);
+              Lwt.return_unit
           | Ok None -> Lwt.return_unit
-          | Ok (Some pkt) -> ingest_private t pkt
+          | Ok (Some pkt) -> ingest_private ~ipaddr t pkt
         in
         let header_size = Ethernet.Packet.sizeof_ethernet
         and input =
@@ -144,11 +149,14 @@ struct
     Dao.Vif_map.iter clean_up_clients !clients;
     add_new_clients (Dao.Vif_map.to_seq m)
 
-  let output_private eth arp packet =
+  let output_private ~ipaddr_cidr eth arp packet =
     let (`IPv4 ({ Ipv4_packet.dst; _ }, _) : Nat_packet.t) = packet in
-    let* res = Private_routing.destination_mac private_ip_cidr None arp dst in
+    let* res = Private_routing.destination_mac ipaddr_cidr None arp dst in
     match res with
-    | Error err -> Lwt.return_unit (* TODO *)
+    | Error dst ->
+        let dst = match dst with `Local -> "local" | `Gateway -> "gateway" in
+        Logs.err (fun m -> m "Could not send packet, error: %s" dst);
+        Lwt.return_unit
     | Ok dst -> (
         let more = ref [] in
         let write buf =
@@ -156,7 +164,20 @@ struct
           | Ok (n, adds) ->
               more := adds;
               n
-          | Error _ -> 0
+          | Error err ->
+              Logs.err (fun m ->
+                  m "Error %a while Nat_packet.into_cstruct" Nat_packet.pp_error
+                    err);
+              (* Vif.Client_ethernet.write takes a fill function
+                 [Cstruct.t -> int], which can not result in an error. Now, if
+                 Nat_packet results in an error (e.g. need to fragment, but
+                 fragmentation is not allowed (don't fragment bit is set)), we
+                 can't pass this information up the stack. Instead we log an
+                 error and return 0 -- thus an empty Ethernet header will be
+                 transmitted on the wire. *)
+              (* TODO(dinosaure): an ICMP error should be sent to the packet
+                 origin. *)
+              0
         in
         let* res = Vif.Client_ethernet.write eth dst `IPv4 write in
         match res with
@@ -177,21 +198,28 @@ struct
     let cache', res = Nat_packet.of_ipv4_packet !cache ~now cs in
     cache := cache';
     match res with
-    | Error err -> Lwt.return_unit
+    | Error err ->
+        Logs.err (fun m -> m "%a" Nat_packet.pp_error err);
+        Lwt.return_unit
     | Ok None -> Lwt.return_unit
     | Ok (Some packet) -> (
         match Mirage_nat_lru.translate table packet with
         | Ok packet ->
             let eth = assert false in
+            (* TODO *)
             let arp = assert false in
-            output_private eth arp packet
+            let ipaddr_cidr = assert false in
+            output_private ~ipaddr_cidr eth arp packet
         | Error err -> Lwt.return_unit)
 
   let rec listen_ovpn t cache =
     let* datas = O.read t.ovpn in
-    let* () =
-      Lwt_list.iter_p (ingest_public cache (M.elapsed_ns ()) t.table) datas
-    in
+    let fn = ingest_public cache (M.elapsed_ns ()) t.table in
+    let* () = Lwt_list.iter_p fn datas in
+    listen_ovpn t cache
+
+  let listen_ovpn t =
+    let cache = ref (Fragments.Cache.empty (256 * 1024)) in
     listen_ovpn t cache
 
   let openvpn_configuration disk =
@@ -214,10 +242,9 @@ struct
     match ovpn with
     | Error (`Msg msg) -> failwith msg
     | Ok ovpn ->
-        let cache = Fragments.Cache.empty (256 * 1024) in
         let table =
           Mirage_nat_lru.empty ~tcp_size:1024 ~udp_size:1024 ~icmp_size:20
         in
-        let _t = { ovpn; cache; table; clients } in
-        Lwt.return_unit
+        let t = { ovpn; table; clients } in
+        Lwt.pick [ wait_clients t; listen_ovpn t ]
 end
