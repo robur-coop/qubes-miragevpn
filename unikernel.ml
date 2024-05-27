@@ -75,8 +75,7 @@ struct
     let cache = ref (Fragments.Cache.empty (256 * 1024)) in
     let listener =
       let fn () =
-        let* arp = A.connect vif.Vif.ethernet in
-        let arpv4 = A.input arp in
+        let arpv4 = Vif.Client_arp.input vif.Vif.arp in
         let ipv4 p =
           let cache', res =
             Nat_packet.of_ipv4_packet !cache ~now:(M.elapsed_ns ()) p
