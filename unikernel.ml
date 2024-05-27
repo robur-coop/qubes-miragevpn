@@ -14,8 +14,6 @@ struct
 
   type t = { ovpn : O.t; table : Mirage_nat_lru.t; clients : Clients.t }
 
-  module A = Arp.Make (Vif.Client_ethernet) (T)
-
   let log = Logs.Src.create "nat"
 
   module Log = (val Logs.src_log log : Logs.LOG)
