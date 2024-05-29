@@ -17,7 +17,7 @@ struct
   let log = Logs.Src.create "nat"
 
   module Log = (val Logs.src_log log : Logs.LOG)
-  module Private_routing = Routing.Make (Log) (A)
+  module Private_routing = Routing.Make (Log) (Vif.Client_arp)
 
   let add_rule t packet =
     let public_ip = O.get_ip t.ovpn in
