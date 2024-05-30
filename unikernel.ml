@@ -13,7 +13,6 @@ module Main
     (KV : Mirage_kv.RO) =
 struct
   module O = Miragevpn_mirage.Make (R) (M) (P) (T) (S)
-  module I = Static_ipv4.Make (R) (M) (Vif.Client_ethernet) (Vif.Client_arp)
 
   type t =
     { ovpn : O.t
@@ -22,11 +21,6 @@ struct
     ; oc : Nat_packet.t Lwt_stream.t * (Nat_packet.t option -> unit)
     ; ic : (Vif.t * Nat_packet.t) Lwt_stream.t * ((Vif.t * Nat_packet.t) option -> unit)
     ; clients : Clients.t }
-
-  let log = Logs.Src.create "nat"
-
-  module L = (val Logs.src_log log : Logs.LOG)
-  module Private_routing = Routing.Make (L) (Vif.Client_arp)
 
   module Nat = struct
     let fail_to_parse ~protocol ~payload =
@@ -82,14 +76,21 @@ struct
 
     let output_private t packet =
       match payload_to_buffer packet with
-      | None -> Lwt.return_unit
-      | Some (buf, proto, hdr) -> Lwt.return_unit
-        (*
-        let ipaddr = Ipaddr.V4.localhost in
-        let* _ = I.write ipaddr ~ttl:hdr.Ipv4_packet.ttl
-          ~src:hdr.Ipv4_packet.src hdr.Ipv4_packet.dst proto (fun _ -> 0) [ buf ] in
+      | None ->
+        Logs.warn (fun m -> m "couldn't encode packet");
         Lwt.return_unit
-        *)
+      | Some (buf, proto, hdr) ->
+        let ipaddr = hdr.Ipv4_packet.dst in
+        match Clients.lookup t.clients ipaddr with
+        | Some vif ->
+          Logs.debug (fun m -> m "Sending a packet to %a" Ipaddr.V4.pp ipaddr);
+          let* r = Vif.Client_ip.write vif.Vif.ip ~ttl:hdr.Ipv4_packet.ttl
+            ~src:hdr.Ipv4_packet.src hdr.Ipv4_packet.dst proto (fun _ -> 0) [ buf ] in
+          (match r with
+          | Ok _ -> ();
+          | Error e -> Logs.warn (fun m -> m "error while sending: %a" Vif.Client_ip.pp_error e));
+          Lwt.return_unit
+        | None -> Logs.warn (fun m -> m "%a does not exist as a client" Ipaddr.V4.pp ipaddr); Lwt.return_unit
   end
 
   let local_network a b = Ipaddr.V4.compare a b = 0

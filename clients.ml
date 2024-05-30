@@ -25,7 +25,7 @@ let create config =
 let default_gateway t = t.default_gateway
 
 let add_client t vif =
-  let (_, ip) = vif.Vif.ip in
+  let (_, ip) = vif.Vif.ipaddr in
   let rec go () =
     match Ipaddr.V4.Map.find_opt ip t.vif_of_ip with
     | Some old ->
@@ -42,7 +42,7 @@ let add_client t vif =
   go ()
 
 let rem_client t vif =
-  let (_, ip) = vif.Vif.ip in
+  let (_, ip) = vif.Vif.ipaddr in
   assert (Ipaddr.V4.Map.mem ip t.vif_of_ip);
   t.vif_of_ip <- Ipaddr.V4.Map.remove ip t.vif_of_ip;
   Lwt_condition.broadcast t.update ()
@@ -59,7 +59,7 @@ let classify t ip =
       | None -> `External ip
 
 let resolve t : host -> Ipaddr.t = function
-  | `Client vif -> Ipaddr.V4 (snd vif.Vif.ip)
+  | `Client vif -> Ipaddr.V4 (snd vif.Vif.ipaddr)
   | `Firewall -> Ipaddr.V4 t.default_gateway
   | `External addr -> addr
 
@@ -90,7 +90,7 @@ module ARP = struct
     let pf (f : ?header:string -> ?tags:_ -> _) fmt =
       f ("who-has %a? " ^^ fmt) Ipaddr.V4.pp req_ipv4
     in
-    if req_ipv4 = snd t.vif.Vif.ip then begin
+    if req_ipv4 = snd t.vif.Vif.ipaddr then begin
       Log.info (fun f -> pf f "ignoring request for client's own IP");
       None
     end else match lookup t req_ipv4 with
