@@ -307,5 +307,6 @@ struct
           ; oc= Lwt_stream.create ()
           ; ic= Lwt_stream.create ()
           ; clients } in
-      Lwt.pick [ shutdown; wait_clients t; ovpn_loop t; ingest_private t; packets_to_clients t ]
+      let* () = Lwt.pick [ shutdown; wait_clients t; ovpn_loop t; ingest_private t; packets_to_clients t ] in
+      S.disconnect vif0
 end
