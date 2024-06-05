@@ -50,7 +50,7 @@ type t =
   ; ip : Client_ip.t
   ; domid : int }
 
-let make backend { Dao.Client_vif.domid; device_id } ~gateway ipaddr =
+let make backend { Dao.Client_vif.domid; _ } ~gateway ipaddr =
   let open Lwt.Syntax in
   let* ethernet = Client_ethernet.connect backend in
   let ((my_mac, your_mac) as mac) =
