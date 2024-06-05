@@ -23,10 +23,12 @@ ENV OPAMCONFIRMLEVEL=unsafe-yes
 # Remove this line (and the base image pin above) if you want to test with the
 # latest versions.
 # taken from https://github.com/ocaml/opam-repository
-RUN opam init --disable-sandboxing -a --bare https://github.com/ocaml/opam-repository.git#f9f113a6bb242a13702859873fa0fcef9146eb6a
+RUN opam init --disable-sandboxing -a --bare https://github.com/ocaml/opam-repository.git#5979d639be2999663a41c1d1b8a73ce3036dcb41
 RUN opam switch create myswitch 4.14.2
 RUN opam exec -- opam install -y mirage opam-monorepo ocaml-solo5
-RUN opam pin https://github.com/robur-coop/miragevpn.git#cd7d999321e13993862af649977689aa96a7e114
+RUN opam exec -- opam install -y tls
+RUN opam pin https://github.com/palainp/miragevpn.git#update
+RUN opam pin https://github.com/palainp/mirage-qubes.git#update
 RUN mkdir /tmp/orb-build
 ADD config.ml /tmp/orb-build/config.ml
 WORKDIR /tmp/orb-build
