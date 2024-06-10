@@ -23,7 +23,7 @@ jobs:
 
       - run: ./build-with.sh podman
 
-      - run: sh -exc 'diff <(sha256sum ./dist/qubes-miragevpn.xen) qubes-miragevpn.sha256 && echo "SHA256 MATCHES" || exit 42'
+      - run: sh -exc 'if [ "$(sha256sum ./dist/qubes-miragevpn.xen)" = "$(cat ./qubes-miragevpn.sha256)" ]; then echo "SHA256 MATCHES"; else exit 42; fi'
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v3

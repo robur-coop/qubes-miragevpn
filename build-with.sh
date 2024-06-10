@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-if [[ $# -ne 1 ]] ; then
+if [ $# -ne 1 ] ; then
 	echo "Usage: build-with.sh { docker | podman }"
 	exit 1
 fi
