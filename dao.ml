@@ -139,4 +139,4 @@ let print_network_config config =
         Ipaddr.V4.pp config.ip Ipaddr.V4.pp (fst config.dns) Ipaddr.V4.pp
         (snd config.dns))
 
-let set_iptables_error db = Qubes.DB.write db "/qubes-iptables-error"
+let _set_iptables_error db = Qubes.DB.write db "/qubes-iptables-error"

@@ -11,11 +11,11 @@ RUN printf "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian
 # taken from https://snapshot.debian.org/archive/debian-security/
 RUN printf "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20240419T111010Z bookworm-security main\n" >> /etc/apt/sources.list
 
-RUN apt update && apt install --no-install-recommends --no-install-suggests -y wget ca-certificates git patch unzip bzip2 make gcc g++ libc-dev
-RUN wget -O /usr/bin/opam https://github.com/ocaml/opam/releases/download/2.1.5/opam-2.1.5-i686-linux && chmod 755 /usr/bin/opam
+RUN apt update && apt install --no-install-recommends --no-install-suggests -y wget ca-certificates git patch unzip bzip2 xz-utils make gcc g++ libc-dev
+RUN wget -O /usr/bin/opam https://github.com/ocaml/opam/releases/download/2.1.6/opam-2.1.6-i686-linux && chmod 755 /usr/bin/opam
 # taken from https://raw.githubusercontent.com/ocaml/opam/master/shell/install.sh
 RUN test `sha512sum /usr/bin/opam | cut -d' ' -f1` = \
-"38802b3079eeceb27aab3465bfd0f9f05a710dccf9487eb35fa2c02fbaf9a0659e1447aa19dd36df9cd01f760229de28c523c08c1c86a3aa3f5e25dbe7b551dd" || exit
+"2b308e7a848252d831a1e046b70156cd901e8a5d95405fc03244fc69ce08222675871d3bcc35352b4448f15787f68a16491c574a6f9d5d8c9bcab81eb6d71ef8" || exit
 
 ENV OPAMROOT=/tmp
 ENV OPAMCONFIRMLEVEL=unsafe-yes
@@ -23,10 +23,12 @@ ENV OPAMCONFIRMLEVEL=unsafe-yes
 # Remove this line (and the base image pin above) if you want to test with the
 # latest versions.
 # taken from https://github.com/ocaml/opam-repository
-RUN opam init --disable-sandboxing -a --bare https://github.com/ocaml/opam-repository.git#f9f113a6bb242a13702859873fa0fcef9146eb6a
+RUN opam init --disable-sandboxing -a --bare https://github.com/ocaml/opam-repository.git#2926702fdd0fe7cab6ee1fa26ccecd28c3c3dd95
 RUN opam switch create myswitch 4.14.2
 RUN opam exec -- opam install -y mirage opam-monorepo ocaml-solo5
-RUN opam pin https://github.com/robur-coop/miragevpn.git#cd7d999321e13993862af649977689aa96a7e114
+RUN opam exec -- opam install -y tls
+RUN opam pin add -y https://github.com/robur-coop/miragevpn.git#0a502cafd0824888c194039fae32a9e1e65cd356
+RUN opam pin add -y https://github.com/mirage/mirage-qubes.git#6d4745eb111c84d68efc8bb14e03d4c5c761df3b
 RUN mkdir /tmp/orb-build
 ADD config.ml /tmp/orb-build/config.ml
 WORKDIR /tmp/orb-build
