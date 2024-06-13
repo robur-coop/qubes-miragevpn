@@ -1,5 +1,3 @@
-open Qubes
-
 let ( let* ) = Lwt.bind
 let ( % ) f g = fun x -> f (g x)
 
@@ -150,9 +148,8 @@ struct
       | exn -> Lwt.fail exn
     in
     Finaliser.add ~finaliser:(fun () -> Lwt.cancel listener) finalisers;
-    let rec transmit =
+    let transmit =
       let rec fn () =
-        let open Lwt.Syntax in
         Lwt_stream.get (fst ic) >>= function
         | Some packet -> (snd t.ic) (Some (vif, packet)); fn ()
         | None -> Lwt.return_unit in
@@ -214,7 +211,7 @@ struct
           msg Cstruct.hexdump_pp cs);
         Lwt.return fragments
       | Ok (hdr, payload) ->
-        let fragments, packet = Fragments.process fragments now hdr payload in
+        let fragments, _packet = Fragments.process fragments now hdr payload in
         let packet = Nat.of_ipv4 hdr payload in
         let packet = Option.map (Mirage_nat_lru.translate table) packet in
         let packet = Option.map Result.to_option packet in
@@ -307,5 +304,6 @@ struct
           ; oc= Lwt_stream.create ()
           ; ic= Lwt_stream.create ()
           ; clients } in
-      Lwt.pick [ shutdown; wait_clients t; ovpn_loop t; ingest_private t; packets_to_clients t ]
+      let* () = Lwt.pick [ shutdown; wait_clients t; ovpn_loop t; ingest_private t; packets_to_clients t ] in
+      S.disconnect vif0
 end

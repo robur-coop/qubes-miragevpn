@@ -29,7 +29,7 @@ let main =
     (random @-> mclock @-> pclock @-> time @-> qubesdb @-> stackv4v6 @-> kv_ro @-> job)
 
 let () =
-  register "qubes-unikernel"
+  register "qubes-miragevpn"
     [
       main $ default_random $ default_monotonic_clock $ default_posix_clock
       $ default_time
