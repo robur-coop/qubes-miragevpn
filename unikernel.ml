@@ -14,7 +14,7 @@ module Main
     (S : Tcpip.Stack.V4V6)
     (KV : Mirage_kv.RO) =
 struct
-  module O = Miragevpn_mirage.Make (R) (M) (P) (T) (S)
+  module O = Miragevpn_mirage.Client_router (R) (M) (P) (T) (S)
 
   type t =
     { ovpn : O.t
