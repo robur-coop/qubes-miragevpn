@@ -1,6 +1,10 @@
 let ( let* ) = Lwt.bind
 let ( % ) f g = fun x -> f (g x)
 
+let config_fn =
+  let doc = Cmdliner.Arg.info ~doc:"OpenVPN config filename." [ "config_fn" ] in
+  Cmdliner.Arg.(value & opt string "/config.ovpn" doc)
+
 module Main
     (R : Mirage_random.S)
     (M : Mirage_clock.MCLOCK)
@@ -267,17 +271,21 @@ struct
           (* TODO(dinosaure): should report ICMP error message to src. *)
           ingest_private t end
 
-  let openvpn_configuration disk =
-    let* contents = KV.get disk (Mirage_kv.Key.v "/config.ovpn") in
+  let openvpn_configuration disk config_fn =
+    let* contents = KV.get disk (Mirage_kv.Key.v config_fn) in
     match contents with
-    | Error _ -> Fmt.failwith "No OpenVPN configuration found"
+    | Error _ ->
+      Logs.err(fun m -> m "Expected configuration file '%s' is absent in the root volume" config_fn);
+      Logs.err(fun m -> m "Try to run in dom0: qvm-volume import mirage-vpn:root vpn.tar");
+      Logs.err(fun m -> m "    with the tarball conatining the requested configuration file");
+      Fmt.failwith "No OpenVPN configuration found"
     | Ok contents -> (
         let string_of_file _ = Error (`Msg "Impossible to load extra files") in
         match Miragevpn.Config.parse_client ~string_of_file contents with
         | Ok cfg -> Lwt.return cfg
         | Error _ -> Fmt.failwith "Invalid OpenVPN configuration")
 
-  let start _random _mclock _pclock _time qubesDB vif0 disk =
+  let start _random _mclock _pclock _time qubesDB vif0 disk config_fn =
     Logs.debug (fun m -> m "Start the unikernel");
     let shutdown =
       let* value = Xen_os.Lifecycle.await_shutdown_request () in
@@ -289,7 +297,7 @@ struct
       Ipaddr.V4.pp (fst cfg.Dao.dns)
       Ipaddr.V4.pp (snd cfg.Dao.dns));
     let clients = Clients.create cfg in
-    let* config = openvpn_configuration disk in
+    let* config = openvpn_configuration disk config_fn in
     Logs.debug (fun m -> m "OpenVPN configuration loaded");
     let* ovpn = O.connect config vif0 in
     match ovpn with

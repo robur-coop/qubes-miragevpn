@@ -1,3 +1,4 @@
+(* mirage >= 4.5.0 & < 4.6.0 *)
 open Mirage
 
 let block = block_of_xenstore_id "51712"
@@ -10,8 +11,10 @@ let ipv4_only = Runtime_arg.ipv4_only ~group:"sys-net" ()
 let ipv6_only = Runtime_arg.ipv4_only ~group:"sys-net" ()
 let stack = direct_stackv4v6 ~ipv4_only ~ipv6_only default_network ethernet arp ipv4 ipv6
 
+let config_fn = runtime_arg ~pos:__POS__ "Unikernel.config_fn"
+
 let main =
-  main ~runtime_args:[]
+  main ~runtime_args:[ config_fn ]
     ~packages:
       [
         package "vchan" ~min:"4.0.2";
