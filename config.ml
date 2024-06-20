@@ -1,5 +1,7 @@
+(* mirage >= 4.5.0 & < 4.6.0 *)
 open Mirage
 
+(* xenstore id 51712 is the root volume *)
 let block = block_of_xenstore_id "51712"
 let config = tar_kv_ro block
 let ethernet = etif default_network
@@ -10,8 +12,10 @@ let ipv4_only = Runtime_arg.ipv4_only ~group:"sys-net" ()
 let ipv6_only = Runtime_arg.ipv4_only ~group:"sys-net" ()
 let stack = direct_stackv4v6 ~ipv4_only ~ipv6_only default_network ethernet arp ipv4 ipv6
 
+let config_key = runtime_arg ~pos:__POS__ "Unikernel.config_key"
+
 let main =
-  main ~runtime_args:[]
+  main ~runtime_args:[ config_key ]
     ~packages:
       [
         package "vchan" ~min:"4.0.2";
