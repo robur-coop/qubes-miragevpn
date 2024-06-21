@@ -27,7 +27,7 @@ RUN opam init --disable-sandboxing -a --bare https://github.com/ocaml/opam-repos
 RUN opam switch create myswitch 4.14.2
 RUN opam exec -- opam install -y mirage opam-monorepo ocaml-solo5
 RUN opam exec -- opam install -y tls
-RUN opam pin add -y https://github.com/robur-coop/miragevpn.git#0a502cafd0824888c194039fae32a9e1e65cd356
+RUN opam pin add -y https://github.com/robur-coop/miragevpn.git#34588aecfee64cbd1bf4be9ca4f198423a3c3c0b
 RUN opam pin add -y https://github.com/mirage/mirage-qubes.git#6d4745eb111c84d68efc8bb14e03d4c5c761df3b
 RUN mkdir /tmp/orb-build
 ADD config.ml /tmp/orb-build/config.ml
