@@ -206,8 +206,23 @@ struct
     let* () = Nat.output_private t packet in
     packets_to_clients t
 
+  let check_memory () =
+    let fraction_free stats =
+      let { Xen_os.Memory.free_words; heap_words; _ } = stats in
+      float free_words /. float heap_words
+    in
+    let stats = Xen_os.Memory.stat () in
+    if fraction_free stats > 0.4 then `Ok
+    else (
+      Gc.full_major ();
+      let stats = Xen_os.Memory.quick_stat () in
+      if fraction_free stats < 0.4 then `Memory_critical
+      else `Ok
+    )
+
   (* OpenVPN packets to clients ([t.oc]) *)
   let ingest_public push table fragments css =
+    let _ = check_memory () in (* TODO: do something when Memory_critical is returned *)
     let now = M.elapsed_ns () in
     let fold fragments cs = match Ipv4_packet.Unmarshal.of_cstruct cs with
       | Error msg ->
@@ -248,6 +263,7 @@ struct
 
   (* clients packets ([t.ic]) to OpenVPN server *)
   let rec ingest_private t =
+    let _ = check_memory () in (* TODO: do something when Memory_critical is returned *)
     let* packet = Lwt_stream.get (fst t.ic) in
     let vif, packet = Option.get packet in
     match Mirage_nat_lru.translate t.table packet with
@@ -283,7 +299,24 @@ struct
         | Ok cfg -> Lwt.return cfg
         | Error _ -> Fmt.failwith "Invalid OpenVPN configuration")
 
+  let print_mem_usage =
+    Lwt.async (fun () ->
+      let wordsize_in_bytes = Sys.word_size / 8 in
+      let rec aux () =
+        let { Xen_os.Memory.free_words; heap_words; _ } = Xen_os.Memory.stat () in
+        let mem_total = heap_words * wordsize_in_bytes in
+        let mem_free = free_words * wordsize_in_bytes in
+        Logs.info (fun f -> f "Memory usage: free %d / %d"
+          mem_free
+          mem_total);
+        let* () = Xen_os.Time.sleep_ns (Duration.of_f 10.0) in
+        aux ()
+      in
+      aux ()
+    )
+    
   let start _random _mclock _pclock _time qubesDB vif0 disk config_key =
+    print_mem_usage ;
     Logs.debug (fun m -> m "Start the unikernel");
     let shutdown =
       let* value = Xen_os.Lifecycle.await_shutdown_request () in
