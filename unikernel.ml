@@ -16,13 +16,20 @@ module Main
 struct
   module O = Miragevpn_mirage.Client_router (R) (M) (P) (T) (S)
 
+  type 'a stream = 'a Lwt_stream.t * ('a option -> unit)
+
   type t =
     { ovpn : O.t
     ; table : Mirage_nat_lru.t
     ; mutable oc_fragments : Fragments.Cache.t
-    ; oc : Nat_packet.t Lwt_stream.t * (Nat_packet.t option -> unit)
-    ; ic : (Vif.t * Nat_packet.t) Lwt_stream.t * ((Vif.t * Nat_packet.t) option -> unit)
+    ; oc : from_server_to_clients_stream
+    ; ic : from_clients_to_server_stream
+    ; dns : (Ipaddr.V4.t * Ipaddr.V4.t) * dns_stream
+    ; vif0 : S.t
     ; clients : Clients.t }
+  and dns_stream = (Vif.t * Nat_packet.t) stream
+  and from_clients_to_server_stream = (Vif.t * Nat_packet.t) stream
+  and from_server_to_clients_stream = Nat_packet.t stream
 
   module Nat = struct
     let fail_to_parse ~protocol ~payload =
@@ -97,18 +104,24 @@ struct
 
   let local_network a b = Ipaddr.V4.compare a b = 0
 
+  let should_be_routed ipaddr hdr =
+    local_network ipaddr hdr.Ipv4_packet.src
+    && not (local_network ipaddr hdr.Ipv4_packet.dst)
+
+  let for_dns (dns0, dns1) hdr =
+    Ipaddr.V4.compare dns0 hdr.Ipv4_packet.dst = 0
+    || Ipaddr.V4.compare dns1 hdr.Ipv4_packet.dst = 0
+
   let add_vif ~finalisers t ({ Dao.Client_vif.domid; device_id } as client_vif)
       ipaddr () =
     let open Lwt.Infix in
     let* backend = Vif.Netbackend.make ~domid ~device_id in
     let ic_fragments = ref (Fragments.Cache.empty (256 * 1024)) in
+    let dns_fragments = ref (Fragments.Cache.empty (256 * 1024)) in
     let ic = Lwt_stream.create () in
     let gateway = Clients.default_gateway t.clients in
     let* vif = Vif.make backend client_vif ~gateway ipaddr in
     let* () = Clients.add_client t.clients vif in
-    let should_be_routed hdr =
-      local_network ipaddr hdr.Ipv4_packet.src
-      && not (local_network ipaddr hdr.Ipv4_packet.dst) in
     Finaliser.add
       ~finaliser:(fun () -> Clients.rem_client t.clients vif)
       finalisers;
@@ -119,7 +132,15 @@ struct
           match Ipv4_packet.Unmarshal.of_cstruct payload with
           | Error msg ->
             Logs.err (fun m -> m "Couldn't decode IPv4 packet %s: %a" msg Cstruct.hexdump_pp payload)
-          | Ok (hdr, payload) when should_be_routed hdr ->
+          | Ok (hdr, payload) when for_dns (fst t.dns) hdr ->
+            Logs.debug (fun m -> m "Handle DNS packet");
+            let now = M.elapsed_ns () in
+            let fragments, packet = Fragments.process !dns_fragments now hdr payload in
+            let packet = Option.bind packet (fun (hdr, payload) -> Nat.of_ipv4 hdr payload) in
+            let packet = Option.map (fun packet -> (vif, packet)) packet in
+            dns_fragments := fragments;
+            Fun.flip Option.iter packet (snd (snd t.dns) % Option.some)
+          | Ok (hdr, payload) when should_be_routed ipaddr hdr ->
             let now = M.elapsed_ns () in
             let fragments, packet = Fragments.process !ic_fragments now hdr payload in
             let packet = Option.bind packet (fun (hdr, payload) -> Nat.of_ipv4 hdr payload) in
@@ -231,6 +252,11 @@ struct
     t.oc_fragments <- fragments;
     ovpn_loop t
 
+  let rec dns_loop t =
+    (* TODO(dinosaure): something which read clear IP packets on some (?) ports/addresses. *)
+    let* () = Lwt.pause () in
+    dns_loop t
+
   let output_tunnel t vif packet =
     match Nat_packet.to_cstruct ~mtu:(O.mtu t.ovpn - Ipv4_wire.sizeof_ipv4) packet with
     | Ok pkts ->
@@ -271,6 +297,42 @@ struct
           (* TODO(dinosaure): should report ICMP error message to src. *)
           ingest_private t end
 
+  let output_clear t vif packet =
+    match Nat_packet.to_cstruct (* mtu front-end *) packet with
+    | Ok pkts ->
+      Logs.debug (fun m -> m "Output DNS packet to front-end");
+      let fn pkt = Logs.debug (fun m -> m "@[<hov>%a@]" (Hxd_string.pp Hxd.default) (Cstruct.to_string pkt)) in
+      List.iter fn pkts;
+      (* TODO(dinosaure): outputs to [vif0]! *)
+      Lwt.return_unit
+    | Error err ->
+        Logs.err (fun m -> m "Nat_packet.to_cstruct failed for clear packets: %a" Nat_packet.pp_error err);
+        Lwt.return_unit
+
+  let rec ingest_dns ~xl_host t =
+    let* packet = Lwt_stream.get (fst (snd t.dns)) in
+    let vif, packet = Option.get packet in
+    match Mirage_nat_lru.translate t.table packet with
+    | Ok packet -> let* () = output_clear t vif packet in ingest_dns ~xl_host t
+    | Error `TTL_exceeded ->
+      Logs.warn (fun m -> m "TTL exceeded for DNS packets");
+      ingest_dns ~xl_host t
+    | Error `Untranslated ->
+      begin match Mirage_nat_lru.add t.table packet xl_host 
+        (fun () -> Some (Randomconv.int16 R.generate)) `NAT with
+      | Error err ->
+          Logs.debug (fun m -> m "Failed to add a NAT rule for DNS packets: %a" Mirage_nat.pp_error err);
+          ingest_dns ~xl_host t
+      | Ok () -> match Mirage_nat_lru.translate t.table packet with
+        | Ok packet -> let* () = output_clear t vif packet in ingest_dns ~xl_host t
+        | Error `Untranslated ->
+            Logs.warn (fun m -> m "Can't translate DNS packet, giving up");
+            ingest_private t
+        | Error `TTL_exceeded ->
+            Logs.warn (fun m -> m "TTL exceeded for DNS packets");
+            (* TODO(dinosaure): should report ICMP error message to src. *)
+            ingest_dns ~xl_host t end
+
   let openvpn_configuration disk config_key =
     let* contents = KV.get disk (Mirage_kv.Key.v config_key) in
     match contents with
@@ -284,6 +346,7 @@ struct
         | Error _ -> Fmt.failwith "Invalid OpenVPN configuration")
 
   let start _random _mclock _pclock _time qubesDB vif0 disk config_key =
+    Logs.set_level ~all:true (Some Logs.Debug);
     Logs.debug (fun m -> m "Start the unikernel");
     let shutdown =
       let* value = Xen_os.Lifecycle.await_shutdown_request () in
@@ -309,7 +372,16 @@ struct
           ; oc_fragments= Fragments.Cache.empty (256 * 1024)
           ; oc= Lwt_stream.create ()
           ; ic= Lwt_stream.create ()
+          ; dns= cfg.Dao.dns, Lwt_stream.create ()
+          ; vif0
           ; clients } in
-      let* () = Lwt.pick [ shutdown; wait_clients t; ovpn_loop t; ingest_private t; packets_to_clients t ] in
+      let* () = Lwt.pick
+        [ shutdown
+        ; wait_clients t
+        ; ovpn_loop t
+        ; ingest_private t
+        ; packets_to_clients t
+        ; dns_loop t
+        ; ingest_dns ~xl_host:cfg.Dao.ip t ] in
       S.disconnect vif0
 end
