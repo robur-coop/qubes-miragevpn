@@ -24,6 +24,7 @@ let main =
         package "mirage-qubes" ~min:"0.9.1";
         package "mirage-xen" ~min:"8.0.0";
         package "ipaddr";
+        package "hxd" ~sublibs:[ "core"; "string" ];
         package "ethernet" ~min:"3.0.0";
         package "arp" ~min:"2.3.0" ~sublibs:[ "mirage" ];
         package ~sublibs:[ "mirage" ] "miragevpn";
