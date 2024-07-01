@@ -1,12 +1,12 @@
-(* mirage >= 4.5.0 & < 4.7.0 *)
+(* mirage >= 4.6.0 & < 4.7.0 *)
 open Mirage
 
 (* xenstore id 51712 is the root volume *)
 let block = block_of_xenstore_id "51712"
 let config = tar_kv_ro block
-let ethernet = etif default_network
+let ethernet = ethif default_network
 let arp = arp ethernet
-let ipv4 = ipv4_qubes default_qubesdb ethernet arp 
+let ipv4 = ipv4_qubes default_qubesdb ethernet arp
 let ipv6 = create_ipv6 default_network ethernet
 let ipv4_only = Runtime_arg.ipv4_only ~group:"sys-net" ()
 let ipv6_only = Runtime_arg.ipv4_only ~group:"sys-net" ()

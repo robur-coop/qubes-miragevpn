@@ -222,7 +222,7 @@ struct
         Option.iter (push % Option.some) (Option.join packet);
         Lwt.return fragments in
     Lwt_list.fold_left_s fold fragments css
-        
+
   let rec ovpn_loop t =
     let* css = O.read t.ovpn in
     Logs.debug (fun m -> m "Got %d packet(s) from OpenVPN" (List.length css));
