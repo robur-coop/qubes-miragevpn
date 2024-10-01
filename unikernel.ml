@@ -6,7 +6,7 @@ let config_key =
   Cmdliner.Arg.(value & opt string "/config.ovpn" doc)
 
 module Main
-    (R : Mirage_random.S)
+    (R : Mirage_crypto_rng_mirage.S)
     (M : Mirage_clock.MCLOCK)
     (P : Mirage_clock.PCLOCK)
     (T : Mirage_time.S)
