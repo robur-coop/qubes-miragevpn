@@ -208,6 +208,7 @@ struct
 
   (* OpenVPN packets to clients ([t.oc]) *)
   let ingest_public push table fragments css =
+    let _ = Qubes.Misc.check_memory () in (* TODO: do something when Memory_critical is returned *)
     let now = M.elapsed_ns () in
     let fold fragments cs = match Ipv4_packet.Unmarshal.of_cstruct cs with
       | Error msg ->
@@ -248,6 +249,7 @@ struct
 
   (* clients packets ([t.ic]) to OpenVPN server *)
   let rec ingest_private t =
+    let _ = Qubes.Misc.check_memory () in (* TODO: do something when Memory_critical is returned *)
     let* packet = Lwt_stream.get (fst t.ic) in
     let vif, packet = Option.get packet in
     match Mirage_nat_lru.translate t.table packet with
@@ -285,9 +287,6 @@ struct
 
   let start _random _mclock _pclock _time qubesDB vif0 disk config_key =
     Logs.debug (fun m -> m "Start the unikernel");
-    let shutdown =
-      let* value = Xen_os.Lifecycle.await_shutdown_request () in
-      match value with `Poweroff | `Reboot -> Lwt.return_unit in
     let* cfg = Dao.read_network_config qubesDB in
     Logs.debug (fun m -> m "ip:%a, gateway:%a, dns: %a & %a"
       Ipaddr.V4.pp cfg.Dao.ip
@@ -310,6 +309,6 @@ struct
           ; oc= Lwt_stream.create ()
           ; ic= Lwt_stream.create ()
           ; clients } in
-      let* () = Lwt.pick [ shutdown; wait_clients t; ovpn_loop t; ingest_private t; packets_to_clients t ] in
+      let* () = Lwt.pick [ Qubes.Misc.shutdown; wait_clients t; ovpn_loop t; ingest_private t; packets_to_clients t ] in
       S.disconnect vif0
 end
