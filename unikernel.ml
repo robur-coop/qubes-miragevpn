@@ -1,12 +1,14 @@
+open Cmdliner
+
 let ( let* ) = Lwt.bind
 let ( % ) f g = fun x -> f (g x)
 
 let config_key =
-  let doc = Cmdliner.Arg.info ~doc:"OpenVPN config filename." [ "config_key" ] in
-  Cmdliner.Arg.(value & opt string "/config.ovpn" doc)
+  let doc = Arg.info ~doc:"OpenVPN config filename." [ "config_key" ] in
+  Mirage_runtime.register_arg Arg.(value & opt string "/config.ovpn" doc)
 
 module Main
-    (R : Mirage_random.S)
+    (R : Mirage_crypto_rng_mirage.S)
     (M : Mirage_clock.MCLOCK)
     (P : Mirage_clock.PCLOCK)
     (T : Mirage_time.S)
@@ -285,7 +287,7 @@ struct
         | Ok cfg -> Lwt.return cfg
         | Error _ -> Fmt.failwith "Invalid OpenVPN configuration")
 
-  let start _random _mclock _pclock _time qubesDB vif0 disk config_key =
+  let start _random _mclock _pclock _time qubesDB vif0 disk =
     Logs.debug (fun m -> m "Start the unikernel");
     let* cfg = Dao.read_network_config qubesDB in
     Logs.debug (fun m -> m "ip:%a, gateway:%a, dns: %a & %a"
@@ -294,6 +296,7 @@ struct
       Ipaddr.V4.pp (fst cfg.Dao.dns)
       Ipaddr.V4.pp (snd cfg.Dao.dns));
     let clients = Clients.create cfg in
+    let config_key = (config_key ()) in
     let* config = openvpn_configuration disk config_key in
     Logs.debug (fun m -> m "OpenVPN configuration loaded");
     let* ovpn = O.connect config vif0 in

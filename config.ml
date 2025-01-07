@@ -1,21 +1,18 @@
-(* mirage >= 4.6.0 & < 4.7.0 *)
+(* mirage >= 4.8.1 & < 4.9.0 *)
 open Mirage
 
 (* xenstore id 51712 is the root volume *)
 let block = block_of_xenstore_id "51712"
-let config = tar_kv_ro block
+let disk = tar_kv_ro block
 let ethernet = ethif default_network
 let arp = arp ethernet
 let ipv4 = ipv4_qubes default_qubesdb ethernet arp
 let ipv6 = create_ipv6 default_network ethernet
-let ipv4_only = Runtime_arg.ipv4_only ~group:"sys-net" ()
-let ipv6_only = Runtime_arg.ipv4_only ~group:"sys-net" ()
-let stack = direct_stackv4v6 ~ipv4_only ~ipv6_only default_network ethernet arp ipv4 ipv6
-
-let config_key = runtime_arg ~pos:__POS__ "Unikernel.config_key"
+let i4i6 = create_ipv4v6 ipv4 ipv6
+let stack = direct_stackv4v6 ~tcp:(direct_tcp i4i6) default_network ethernet arp ipv4 ipv6
 
 let main =
-  main ~runtime_args:[ config_key ]
+  main
     ~packages:
       [
         package "vchan" ~min:"4.0.2";
@@ -39,5 +36,5 @@ let () =
       $ default_time
       $ default_qubesdb
       $ stack
-      $ config;
+      $ disk;
     ]
