@@ -8,8 +8,7 @@ let ethernet = ethif default_network
 let arp = arp ethernet
 let ipv4 = ipv4_qubes default_qubesdb ethernet arp
 let ipv6 = create_ipv6 default_network ethernet
-let i4i6 = create_ipv4v6 ipv4 ipv6
-let stack = direct_stackv4v6 ~tcp:(direct_tcp i4i6) default_network ethernet arp ipv4 ipv6
+let stack = direct_stackv4v6 default_network ethernet arp ipv4 ipv6
 
 let main =
   main
