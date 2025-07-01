@@ -281,7 +281,7 @@ struct
         let string_of_file _ = Error (`Msg "Impossible to load extra files") in
         match Miragevpn.Config.parse_client ~string_of_file contents with
         | Ok cfg -> Lwt.return cfg
-        | Error _ -> Fmt.failwith "Invalid OpenVPN configuration")
+        | Error (`Msg m) -> Fmt.failwith "Invalid OpenVPN configuration %s" m)
 
   let start qubesDB vif0 disk =
     Logs.debug (fun m -> m "Start the unikernel");
