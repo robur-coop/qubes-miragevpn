@@ -8,15 +8,11 @@ let config_key =
   Mirage_runtime.register_arg Arg.(value & opt string "/config.ovpn" doc)
 
 module Main
-    (R : Mirage_crypto_rng_mirage.S)
-    (M : Mirage_clock.MCLOCK)
-    (P : Mirage_clock.PCLOCK)
-    (T : Mirage_time.S)
     (DB : Qubes.S.DB)
     (S : Tcpip.Stack.V4V6)
     (KV : Mirage_kv.RO) =
 struct
-  module O = Miragevpn_mirage.Client_router (R) (M) (P) (T) (S)
+  module O = Miragevpn_mirage.Client_router (S)
 
   type t =
     { ovpn : O.t
@@ -122,7 +118,7 @@ struct
           | Error msg ->
             Logs.err (fun m -> m "Couldn't decode IPv4 packet %s: %a" msg Cstruct.hexdump_pp payload)
           | Ok (hdr, payload) when should_be_routed hdr ->
-            let now = M.elapsed_ns () in
+            let now = Mirage_mtime.elapsed_ns () in
             let fragments, packet = Fragments.process !ic_fragments now hdr payload in
             let packet = Option.bind packet (fun (hdr, payload) -> Nat.of_ipv4 hdr payload) in
             ic_fragments := fragments;
@@ -211,7 +207,7 @@ struct
   (* OpenVPN packets to clients ([t.oc]) *)
   let ingest_public push table fragments css =
     let _ = Qubes.Misc.check_memory () in (* TODO: do something when Memory_critical is returned *)
-    let now = M.elapsed_ns () in
+    let now = Mirage_mtime.elapsed_ns () in
     let fold fragments cs = match Ipv4_packet.Unmarshal.of_cstruct cs with
       | Error msg ->
         Logs.err (fun m -> m "Failed to decode IPv4 packet from OpenVPN: %s: %a"
@@ -261,7 +257,7 @@ struct
       ingest_private t
     | Error `Untranslated ->
       begin match Mirage_nat_lru.add t.table packet (O.get_ip t.ovpn)
-        (fun () -> Some (Randomconv.int16 R.generate)) `NAT with
+        (fun () -> Some (Randomconv.int16 Mirage_crypto_rng.generate)) `NAT with
       | Error err ->
         Logs.debug (fun m -> m "Failed to add a NAT rule: %a" Mirage_nat.pp_error err);
         ingest_private t
@@ -287,7 +283,7 @@ struct
         | Ok cfg -> Lwt.return cfg
         | Error _ -> Fmt.failwith "Invalid OpenVPN configuration")
 
-  let start _random _mclock _pclock _time qubesDB vif0 disk =
+  let start qubesDB vif0 disk =
     Logs.debug (fun m -> m "Start the unikernel");
     let* cfg = Dao.read_network_config qubesDB in
     Logs.debug (fun m -> m "ip:%a, gateway:%a, dns: %a & %a"
