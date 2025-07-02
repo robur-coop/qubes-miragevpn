@@ -23,14 +23,14 @@ ENV OPAMCONFIRMLEVEL=unsafe-yes
 # Remove this line (and the base image pin above) if you want to test with the
 # latest versions.
 # taken from https://github.com/ocaml/opam-repository
-RUN opam init --disable-sandboxing -a --bare https://github.com/ocaml/opam-repository.git#306c328a5d8550ae58f29b3609c6f7a073c219ab
+RUN opam init --disable-sandboxing -a --bare https://github.com/ocaml/opam-repository.git#70ed6dc3809eac914120062fdc7a82492f5c3ef9
 RUN opam switch create myswitch 4.14.2
 RUN opam exec -- opam install -y mirage opam-monorepo ocaml-solo5
-RUN opam pin add -yn https://github.com/robur-coop/miragevpn.git#3e705ec00c2c482c49360fdda046a36da9361f03
+RUN opam pin add -yn https://github.com/robur-coop/miragevpn.git#440768ae2fefc9da57e4a9f15bcbe6d217550d6c
 RUN mkdir /tmp/orb-build
 ADD config.ml /tmp/orb-build/config.ml
 WORKDIR /tmp/orb-build
 CMD opam exec -- sh -exc 'mirage configure -t xen --extra-repos=\
-opam-overlays:https://github.com/dune-universe/opam-overlays.git#f2bec38beca4aea9e481f2fd3ee319c519124649,\
+opam-overlays:https://github.com/dune-universe/opam-overlays.git#e031bb64e33bf93be963e9a38b28962e6e14381f,\
 mirage-overlays:https://github.com/dune-universe/mirage-opam-overlays.git#797cb363df3ff763c43c8fbec5cd44de2878757e \
 && make depend && make build'

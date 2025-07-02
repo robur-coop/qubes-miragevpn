@@ -9,8 +9,7 @@ module Netbackend = Backend.Make (Xenstore.Make (Xen_os.Xs))
                <-[client_ethernetn]-> [clientN]
 *)
 module Client_ethernet = Ethernet.Make (Netbackend)
-module Underlying_arp = Arp.Make (Client_ethernet) (Xen_os.Time)
-module R = Mirage_crypto_rng_mirage.Make(Xen_os.Time)(Mclock)
+module Underlying_arp = Arp.Make (Client_ethernet)
 
 module Client_arp = struct
   type t =
@@ -40,7 +39,7 @@ module Client_arp = struct
     then Lwt.return_ok t.your_mac else Lwt.return_ok t.my_mac
 end
 
-module Client_ip = Static_ipv4.Make(R)(Mclock)(Client_ethernet)(Client_arp)
+module Client_ip = Static_ipv4.Make(Client_ethernet)(Client_arp)
 
 type t =
   { ipaddr : Ipaddr.V4.t * Ipaddr.V4.t

@@ -1,8 +1,7 @@
 module Netbackend : module type of Backend.Make (Xenstore.Make (Xen_os.Xs))
 module Client_ethernet : module type of Ethernet.Make (Netbackend)
-module R : module type of Mirage_crypto_rng_mirage.Make(Xen_os.Time)(Mclock)
 module Client_arp : Arp.S
-module Client_ip : module type of Static_ipv4.Make (R) (Mclock) (Client_ethernet) (Client_arp)
+module Client_ip : module type of Static_ipv4.Make (Client_ethernet) (Client_arp)
 
 type t = {
   ipaddr : Ipaddr.V4.t * Ipaddr.V4.t;
