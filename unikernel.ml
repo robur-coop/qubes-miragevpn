@@ -7,9 +7,13 @@ let config_key =
   let doc = Arg.info ~doc:"OpenVPN config filename." [ "config_key" ] in
   Mirage_runtime.register_arg Arg.(value & opt string "/config.ovpn" doc)
 
-let resolver =
-  let doc = Arg.info ~doc:"Target resolver for AppVM clients." [ "target-resolver" ] in
-  Mirage_runtime.register_arg Arg.(value & opt string "8.8.8.8" doc)
+let resolver_ip =
+  let doc = Arg.info ~doc:"Target resolver IP for AppVM clients." [ "resolver" ] in
+  Mirage_runtime.register_arg Arg.(value & opt string "" doc)
+
+let resolver_port =
+  let doc = Arg.info ~doc:"Target resolver port for AppVM clients." [ "rport" ] in
+  Mirage_runtime.register_arg Arg.(value & opt int 53 doc)
 
 module Main
     (DB : Qubes.S.DB)
@@ -302,13 +306,19 @@ struct
     let* cfg = Dao.read_network_config qubesDB in
     let dns0 = (fst cfg.Dao.dns) in
     let dns1 = (snd cfg.Dao.dns) in
-    let resolver = Ipaddr.V4.of_string_exn (resolver ()) in
-    Logs.info (fun m -> m "\tip:%a\n\tgateway:%a\n\tdns: %a & %a\n\tresolver: %a"
+    let resolver_ip = resolver_ip () in
+    if resolver_ip = "" then (
+      Logs.err(fun m -> m "Resolver IP is not set, please add it to the kernel command line: qvm-prefs --set mirage-vpn -- kernelopts '--resolver=X.X.X.X --config_key=XXXX'");
+      failwith "Resolver IP is not set"
+    ) else
+    let resolver_ip = Ipaddr.V4.of_string_exn resolver_ip in
+    let resolver_port = resolver_port () in
+    Logs.info (fun m -> m "\tip:%a\n\tgateway:%a\n\tdns: %a & %a\n\tresolver: %a:%d"
       Ipaddr.V4.pp cfg.Dao.ip
       Ipaddr.V4.pp cfg.Dao.gateway
       Ipaddr.V4.pp dns0
       Ipaddr.V4.pp dns1
-      Ipaddr.V4.pp resolver);
+      Ipaddr.V4.pp resolver_ip resolver_port);
     let clients = Clients.create cfg in
     let config_key = (config_key ()) in
     let* config = openvpn_configuration disk config_key in
@@ -325,7 +335,7 @@ struct
           ; oc_fragments= Fragments.Cache.empty (256 * 1024)
           ; oc= Lwt_stream.create ()
           ; ic= Lwt_stream.create ()
-          ; dns= (dns0, dns1, (resolver, 53)) (* TODO: get port from command line too? *)
+          ; dns= (dns0, dns1, (resolver_ip, resolver_port))
           ; clients } in
       let* () = Lwt.pick [ Qubes.Misc.shutdown; wait_clients t; ovpn_loop t; ingest_private t; packets_to_clients t ] in
       S.disconnect vif0
