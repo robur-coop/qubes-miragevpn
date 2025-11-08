@@ -155,7 +155,10 @@ struct
         Lwt_stream.get (fst ic) >>= function
         | Some packet -> (snd t.ic) (Some (vif, packet)); fn ()
         | None -> Lwt.return_unit in
-      fn () in
+      Lwt.catch fn @@ function
+      | Lwt.Canceled -> Lwt.return_unit
+      | exn -> Lwt.fail exn
+      in
     Finaliser.add ~finaliser:(fun () -> Lwt.cancel transmit) finalisers;
     Lwt.async (fun () -> Lwt.pick [ listener; transmit ]);
     Lwt.return finalisers
