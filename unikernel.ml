@@ -7,6 +7,14 @@ let config_key =
   let doc = Arg.info ~doc:"OpenVPN config filename." [ "config_key" ] in
   Mirage_runtime.register_arg Arg.(value & opt string "/config.ovpn" doc)
 
+let resolver_ip =
+  let doc = Arg.info ~doc:"Target resolver IP for AppVM clients." [ "resolver" ] in
+  Mirage_runtime.register_arg Arg.(value & opt string "" doc)
+
+let resolver_port =
+  let doc = Arg.info ~doc:"Target resolver port for AppVM clients." [ "rport" ] in
+  Mirage_runtime.register_arg Arg.(value & opt int 53 doc)
+
 module Main
     (DB : Qubes.S.DB)
     (S : Tcpip.Stack.V4V6)
@@ -20,6 +28,8 @@ struct
     ; mutable oc_fragments : Fragments.Cache.t
     ; oc : Nat_packet.t Lwt_stream.t * (Nat_packet.t option -> unit)
     ; ic : (Vif.t * Nat_packet.t) Lwt_stream.t * ((Vif.t * Nat_packet.t) option -> unit)
+    (* dns0 and dns1 from qubesDB, and the resolver address from command line *)
+    ; dns : (Ipaddr.V4.t * Ipaddr.V4.t * Mirage_nat.endpoint)
     ; clients : Clients.t }
 
   module Nat = struct
@@ -93,7 +103,7 @@ struct
         | None -> Logs.warn (fun m -> m "%a does not exist as a client" Ipaddr.V4.pp ipaddr); Lwt.return_unit
   end
 
-  let local_network a b = Ipaddr.V4.compare a b = 0
+  let equal_ipv4 a b = Ipaddr.V4.compare a b = 0
 
   let add_vif ~finalisers t ({ Dao.Client_vif.domid; device_id } as client_vif)
       ipaddr () =
@@ -105,8 +115,8 @@ struct
     let* vif = Vif.make backend client_vif ~gateway ipaddr in
     let* () = Clients.add_client t.clients vif in
     let should_be_routed hdr =
-      local_network ipaddr hdr.Ipv4_packet.src
-      && not (local_network ipaddr hdr.Ipv4_packet.dst) in
+      equal_ipv4 ipaddr hdr.Ipv4_packet.src
+      && not (equal_ipv4 ipaddr hdr.Ipv4_packet.dst) in
     Finaliser.add
       ~finaliser:(fun () -> Clients.rem_client t.clients vif)
       finalisers;
@@ -259,8 +269,14 @@ struct
       Logs.warn (fun m -> m "TTL exceeded");
       ingest_private t
     | Error `Untranslated ->
+      let (`IPv4 (hdr, _payload)) = packet in
+      let (dns0, dns1, resolver) = t.dns in
+      let mode = match hdr.Ipv4_packet.dst with
+      | ip when equal_ipv4 dns0 ip || equal_ipv4 dns1 ip -> `Redirect resolver
+      | _ -> `NAT
+      in
       begin match Mirage_nat_lru.add t.table packet (O.get_ip t.ovpn)
-        (fun () -> Some (Randomconv.int16 Mirage_crypto_rng.generate)) `NAT with
+        (fun () -> Some (Randomconv.int16 Mirage_crypto_rng.generate)) mode with
       | Error err ->
         Logs.debug (fun m -> m "Failed to add a NAT rule: %a" Mirage_nat.pp_error err);
         ingest_private t
@@ -287,13 +303,22 @@ struct
         | Error (`Msg m) -> Fmt.failwith "Invalid OpenVPN configuration %s" m)
 
   let start qubesDB vif0 disk =
-    Logs.debug (fun m -> m "Start the unikernel");
     let* cfg = Dao.read_network_config qubesDB in
-    Logs.debug (fun m -> m "ip:%a, gateway:%a, dns: %a & %a"
+    let dns0 = (fst cfg.Dao.dns) in
+    let dns1 = (snd cfg.Dao.dns) in
+    let resolver_ip = resolver_ip () in
+    if resolver_ip = "" then (
+      Logs.err(fun m -> m "Resolver IP is not set, please add it to the kernel command line: qvm-prefs --set mirage-vpn -- kernelopts '--resolver=X.X.X.X --config_key=XXXX'");
+      failwith "Resolver IP is not set"
+    ) else
+    let resolver_ip = Ipaddr.V4.of_string_exn resolver_ip in
+    let resolver_port = resolver_port () in
+    Logs.info (fun m -> m "\tip:%a\n\tgateway:%a\n\tdns: %a & %a\n\tresolver: %a:%d"
       Ipaddr.V4.pp cfg.Dao.ip
       Ipaddr.V4.pp cfg.Dao.gateway
-      Ipaddr.V4.pp (fst cfg.Dao.dns)
-      Ipaddr.V4.pp (snd cfg.Dao.dns));
+      Ipaddr.V4.pp dns0
+      Ipaddr.V4.pp dns1
+      Ipaddr.V4.pp resolver_ip resolver_port);
     let clients = Clients.create cfg in
     let config_key = (config_key ()) in
     let* config = openvpn_configuration disk config_key in
@@ -310,6 +335,7 @@ struct
           ; oc_fragments= Fragments.Cache.empty (256 * 1024)
           ; oc= Lwt_stream.create ()
           ; ic= Lwt_stream.create ()
+          ; dns= (dns0, dns1, (resolver_ip, resolver_port))
           ; clients } in
       let* () = Lwt.pick [ Qubes.Misc.shutdown; wait_clients t; ovpn_loop t; ingest_private t; packets_to_clients t ] in
       S.disconnect vif0
