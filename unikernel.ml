@@ -103,7 +103,7 @@ struct
         | None -> Logs.warn (fun m -> m "%a does not exist as a client" Ipaddr.V4.pp ipaddr); Lwt.return_unit
   end
 
-  let compare a b = Ipaddr.V4.compare a b = 0
+  let equal_ipv4 a b = Ipaddr.V4.compare a b = 0
 
   let add_vif ~finalisers t ({ Dao.Client_vif.domid; device_id } as client_vif)
       ipaddr () =
@@ -115,8 +115,8 @@ struct
     let* vif = Vif.make backend client_vif ~gateway ipaddr in
     let* () = Clients.add_client t.clients vif in
     let should_be_routed hdr =
-      compare ipaddr hdr.Ipv4_packet.src
-      && not (compare ipaddr hdr.Ipv4_packet.dst) in
+      equal_ipv4 ipaddr hdr.Ipv4_packet.src
+      && not (equal_ipv4 ipaddr hdr.Ipv4_packet.dst) in
     Finaliser.add
       ~finaliser:(fun () -> Clients.rem_client t.clients vif)
       finalisers;
@@ -272,7 +272,7 @@ struct
       let (`IPv4 (hdr, _payload)) = packet in
       let (dns0, dns1, resolver) = t.dns in
       let mode = match hdr.Ipv4_packet.dst with
-      | ip when compare dns0 ip || compare dns1 ip -> `Redirect resolver
+      | ip when equal_ipv4 dns0 ip || equal_ipv4 dns1 ip -> `Redirect resolver
       | _ -> `NAT
       in
       begin match Mirage_nat_lru.add t.table packet (O.get_ip t.ovpn)
