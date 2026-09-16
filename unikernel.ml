@@ -108,7 +108,7 @@ struct
   let add_vif ~finalisers t ({ Dao.Client_vif.domid; device_id } as client_vif)
       ipaddr () =
     let open Lwt.Infix in
-    let* backend = Vif.Netbackend.make ~domid ~device_id in
+    let* backend = Vif.Netif.make_backend ~domid ~device_id in
     let ic_fragments = ref (Fragments.Cache.empty (256 * 1024)) in
     let ic = Lwt_stream.create () in
     let gateway = Clients.default_gateway t.clients in
@@ -144,10 +144,10 @@ struct
             vif.Vif.ethernet
         in
         Logs.debug (fun m -> m "%a starts to listen packets" Vif.pp vif);
-        Vif.Netbackend.listen backend ~header_size input >>= function
+        Vif.Netif.listen backend ~header_size input >>= function
         | Error err ->
             Logs.err (fun m ->
-                m "Private interface %a stopped: %a" Vif.Netbackend.pp_error err
+                m "Private interface %a stopped: %a" Vif.Netif.pp_error err
                   Vif.pp vif);
             Lwt.return_unit
         | Ok () ->

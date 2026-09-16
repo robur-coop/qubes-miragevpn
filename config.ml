@@ -1,4 +1,4 @@
-(* mirage >= 4.9.0 & < 4.10.0 *)
+(* mirage >= 4.9.0 & < 4.12.0 *)
 open Mirage
 
 (* xenstore id 51712 is the root volume *)
@@ -16,12 +16,12 @@ let main =
       [
         package "vchan" ~min:"4.0.2";
         package "shared-memory-ring" ~min:"3.0.0";
-        package "mirage-net-xen" ~min:"2.1.3";
-        package "mirage-qubes" ~min:"0.11.0";
-        package "mirage-xen" ~min:"8.0.0";
+        package "mirage-net-xen" ~min:"2.1.8";
+        package "mirage-qubes" ~min:"2.0.1";
+        package "mirage-xen" ~min:"9.0.1";
         package "ipaddr";
         package "ethernet" ~min:"3.0.0";
-        package "arp" ~min:"2.3.0" ~sublibs:[ "mirage" ];
+        package "arp" ~min:"4.1.0" ~sublibs:[ "mirage" ];
         package ~sublibs:[ "mirage" ] "miragevpn";
         package "mirage-nat" ~min:"3.0.0";
       ]
