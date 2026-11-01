@@ -1,6 +1,6 @@
-module Netbackend = Backend.Make (Xenstore.Make (Xen_os.Xs))
+module Netif = Netif.Make (Xenstore.Make (Xen_os.Xs))
 
-(* NOTE(dinosaure): [Backend] comes from [mirage-net-xen]
+(* NOTE(dinosaure): [Netif] comes from [mirage-net-xen]
 
    Client_ethernet is:
 
@@ -8,7 +8,7 @@ module Netbackend = Backend.Make (Xenstore.Make (Xen_os.Xs))
                <-[client_ethernet.]-> [client.]
                <-[client_ethernetn]-> [clientN]
 *)
-module Client_ethernet = Ethernet.Make (Netbackend)
+module Client_ethernet = Ethernet.Make (Netif)
 module Underlying_arp = Arp.Make (Client_ethernet)
 
 module Client_arp = struct
@@ -53,7 +53,7 @@ let make backend { Dao.Client_vif.domid; _ } ~gateway ipaddr =
   let open Lwt.Syntax in
   let* ethernet = Client_ethernet.connect backend in
   let ((my_mac, your_mac) as mac) =
-    (Client_ethernet.mac ethernet, Netbackend.frontend_mac backend)
+    (Client_ethernet.mac ethernet, Netif.frontend_mac backend)
   in
   let ((_my_ip, your_ip) as ipaddr) = (gateway, ipaddr) in
   let* arp = Client_arp.connect ~my_mac your_ip ~your_mac ethernet in
